@@ -2,8 +2,6 @@ import processing.net.*;
 
 Client myclient;
 
-
-
 String header;
 String tail;
 
@@ -24,7 +22,6 @@ int adc[];
 
 int headerindex;
 int tailindex;
-
 
 public class COM_PACKET {
   public byte[] Header;
@@ -49,9 +46,6 @@ public class COM_PACKET {
   }
 }
 
-
-
-
 class KLib2{
   public COM_PACKET compacket;
   public int[] last_frame;
@@ -59,7 +53,7 @@ class KLib2{
   byte[] buf;
   int port;
   String serverip;
-  PApplet parent;
+  PApplet parent; // TCP/IP member var
   
   public KLib2(PApplet _parent,String _serverip, int _port)
   {
@@ -76,19 +70,24 @@ class KLib2{
     isread = false;
   }
   
+  //disconnect TCP/IP to SF3
   void k_stop()
   {
     isread = false;
     myclient.stop();
   }
   
+  //read to packet func
   int[] k_read()
   {
     if(!isread)
       return last_frame;
     int[] rowdata = new int[4800];
-    
+    //read packet
     byte[] packet = myclient.readBytes();
+    
+    if(myclient.available()<=0)
+      return last_frame;
     
     for(int i =0 ; i<packet.length;++i){
       buf = append(buf,packet[i]) ;
@@ -102,36 +101,21 @@ class KLib2{
       {
         continue;
       }
-      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){
+      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){ //check header
         continue;
       }
-      /*
-      print("i : ");
-      println(i);
-      */
+      
       int tail = i + 4996;
-      /*
-      print("buf length : ");
-      println(buf.length);
-      print("tail : ");
-      println(tail);   
-      print("buf[tail] : ");
-      println(buf[tail]);
-      */
-    
+
       byte tailvalue = byte(unhex("81"));
-    
-      //print("tailvalue : ");
-      //println(tailvalue);
     
       if(buf[tail] != tailvalue)
       {
         continue;
       }
-      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){
+      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){ //check tail
         continue;
       }
-      //println("pass all condition");
       headerindex = i;
       tailindex = tail;
       break;
@@ -162,7 +146,7 @@ class KLib2{
       }
     
     byte[] nextbuf = new byte[0];
-    
+    //creat next buf
     for(int i = tailindex + 4 ; i < buf.length; ++i)
     {
         append(nextbuf, buf[i]);
@@ -175,20 +159,27 @@ class KLib2{
     return rowdata;
   }
   
+  //connect TCP/IP to SF3
   void k_start()
   {
+    //Create TCP/IP Client
     myclient = new Client(parent, serverip, port);
-    
+
     if(compacket == null)
       compacket = new COM_PACKET();  
-    
+
+    while(true)
+    {
     if(myclient.available() > 0){
     
+      println(myclient.available());
+      if(myclient.available()<5000)
+        continue;
+      println("??");
     byte[] packet = myclient.readBytes();
-    /*
-    print("packetlen : ");
-    println(packet.length);
-    */
+    
+    boolean ispacket = false;
+    
     for(int i =0 ; i<packet.length;++i){
       buf = append(buf,packet[i]) ;
     }
@@ -201,40 +192,24 @@ class KLib2{
       {
         continue;
       }
-      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){
+      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){//check header
         continue;
       }
-      //print("i : ");
-      //println(i);
     
       int tail = i + 4996;
-      /*
-      print("buf length : ");
-      println(buf.length);
-      print("tail : ");
-      println(tail);   
-      print("buf[tail] : ");
-      println(buf[tail]);
-      */
-    
       byte tailvalue = byte(unhex("81"));
-    
-      //print("tailvalue : ");
-      //println(tailvalue);
-    
+ 
       if(buf[tail] != tailvalue)
       {
         continue;
       }
-      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){
+      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){//check tail
         continue;
       }
-      //println("pass all condition");
       headerindex = i;
       tailindex = tail;
-      
       break;
-    }
+      }
     
     isread = true;
     
@@ -248,12 +223,14 @@ class KLib2{
     int row = 0;
     int col = 0;
   
+    //read device information and sensor information
     for(int i =0;i<4;++i){
-     count += int(buf[headerindex+4+i]) * int(pow(16,i));
-     nofdevice += int(buf[headerindex+80+i]) * int(pow(16,i));
-     row += int(buf[headerindex+84+i]) * int(pow(16,i));
-     col += int(buf[headerindex+88+i]) * int(pow(16,i));
-    }
+      print(headerindex+80+i);
+      count += int(buf[headerindex+4+i]) * int(pow(16,i));
+      nofdevice += int(buf[headerindex+80+i]) * int(pow(16,i));
+      row += int(buf[headerindex+84+i]) * int(pow(16,i));
+      col += int(buf[headerindex+88+i]) * int(pow(16,i));
+      }
   
     compacket.Count = count;
     compacket.NofDevice = nofdevice;
@@ -264,7 +241,8 @@ class KLib2{
     String devicename = "";
     String sensor1 = "";
     String sensor2 = "";
-  
+    
+    //read device's name and sensor's name
     for(int i =0;i<24;++i){
       devicename += char(buf[headerindex+8+i]);
       sensor1 += char(buf[headerindex+32+i]);
@@ -274,7 +252,12 @@ class KLib2{
     compacket.sensor1_name = sensor1;
     compacket.sensor2_name = sensor2;  
   
-     
+     break;
+      }
+      else
+      {
+        continue;
+      }
     }
   }
 }
@@ -283,15 +266,7 @@ KLib2 kLib;
 
 void setup(){
   size(200,200);
-  
   MAXBYTE = 5000;
-  
-  /*
-  header = str(char(unhex("7E"))) + str(char(unhex("7E"))) + str(char(unhex("7E"))) + str(char(unhex("7E")));
-  tail = str(char(unhex("7F"))) + str(char(unhex("7F"))) + str(char(unhex("7F"))) + str(char(unhex("7F")));
-  headerindex = -1;
-  tailindex = -1;
-  */
   
   kLib = new KLib2(this, "127.0.0.1", 3800);
   kLib.k_start();
@@ -301,55 +276,18 @@ void draw(){
   
   int[] data = kLib.k_read(); //<>// //<>//
   
-  println(data);
-  /*
-  for(int i =0; i<4800; ++i){
-    print(i);
-    print(": ");
-    print(data[i]);
-    print(", ");
+  //print(kLib.compacket.row);
+  //print(kLib.compacket.col);
+  
+  for(int i =0; i< kLib.compacket.col ; ++i)
+  {
+    for(int j =0; j< kLib.compacket.row ; ++j)
+    {
+      print(data[i*kLib.compacket.row + j]);
+      print(" ");
     }
-    */
-  /*
-  print("headerindex : ");
-  println(headerindex);
-  print("tailindex : ");
-  println(tailindex);
-  
-  
-      
-  int headerindex = buf.indexOf(header);
-  int tailindex = buf.indexOf(tail);
-  int tailindex = buf.indexOf(header, headerindex+4);
-    
-  print("headerindex+4 : ");
-  println(buf.substring(headerindex,8));
-   
-  print("headerindex : ");
-  println(headerindex);
-  
-  print("tailindex : ");
-  println(tailindex);
-  println("");
-  
-  for(int i=0; i<packet.length();++i){
-    print(hex(packet.charAt(i)));
-    print("(");
-    print(i);
-    print("), ");
+    println();
   }
-  
-  println("");
-  println("");
-  
-  if(headerindex <0|| tailindex <0 || tailindex - headerindex != 4996){
-    println("clear");
-    if(headerindex>-1 && tailindex>-1)
-      buf = buf.substring(tailindex+4);
-    return;
-  }
-    
-  String result = buf.substring(headerindex+4,tailindex);
-  */
+  println();
+  println();
  }
-  //background(data);
