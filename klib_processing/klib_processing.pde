@@ -1,4 +1,4 @@
-import processing.net.*;
+import processing.net.*; //<>//
 
 Client myclient;
 
@@ -86,8 +86,10 @@ class KLib2{
     //read packet
     byte[] packet = myclient.readBytes();
     
-    if(myclient.available()<=0)
+    if(packet == null || packet.length <= 0)
+    {
       return last_frame;
+    }
     
     for(int i =0 ; i<packet.length;++i){
       buf = append(buf,packet[i]) ;
@@ -274,7 +276,7 @@ void setup(){
 
 void draw(){
   
-  int[] data = kLib.k_read(); //<>// //<>//
+  int[] data = kLib.k_read(); //<>//
   
   //print(kLib.compacket.row);
   //print(kLib.compacket.col);
