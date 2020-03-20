@@ -18,30 +18,28 @@ int MAX_TAIL = 4;
 
 int row;
 int col;
+int packetlength;
 int adc[];
 
 int headerindex;
 int tailindex;
 
 public class COM_PACKET {
-  public byte[] Header;
-  public int Count;
-  public String Device_name;
-  public String sensor1_name;
-  public String sensor2_name;
-  public int NofDevice;
-  public int row;
-  public int col;
-  public char[] temp1;
-  public int[] adc;
-  public char[] temp2;
-  public byte[] Tail;
+  public byte[] Header;//4
+  public int Length;//4
+  public int Count;//4
+  public String Device_name;//20
+  public String sensor1_name;//20
+  public String sensor2_name;//20
+  public int NofDevice;//4
+  public int row;//4
+  public int col;//4
+  public int[] adc;//row*col
+  public byte[] Tail;//4
   
-  public COM_PACKET(){
+  public COM_PACKET(int _row, int _col){
     Header = new byte[MAX_HEADER];
-    temp1= new char[MAX_TEMP1];
-    adc = new int[MAX_ADC];
-    temp2 = new char[MAX_TEMP2];
+    adc = new int[_row*_col];
     Tail = new byte[MAX_TAIL];
   }
 }
@@ -82,7 +80,6 @@ class KLib2{
   {
     if(!isread)
       return last_frame;
-    int[] rowdata = new int[4800];
     //read packet
     byte[] packet = myclient.readBytes();
     
@@ -95,9 +92,14 @@ class KLib2{
       buf = append(buf,packet[i]) ;
     }
     
+    println();
+    print(buf.length);
+    println();
+    print(row * col);
+    
     for(int i = 0; i<buf.length-3; ++i){
-      if(buf.length + 3 < 5003 + i){
-        continue;
+      if(buf.length + 3 < row * col + 100){
+        return last_frame;
       }
       if(buf[i] != unhex("7E"))
       {
@@ -107,7 +109,7 @@ class KLib2{
         continue;
       }
       
-      int tail = i + 4996;
+      int tail = i + (row * col) + 96;
 
       byte tailvalue = byte(unhex("81"));
     
@@ -127,24 +129,27 @@ class KLib2{
       return last_frame;
     
     int count = 0;
+    
     for(int i =0;i<4;++i){
-      int temp = int(buf[headerindex+4+i]);
+      int temp = int(buf[headerindex+8+i]);
       if(temp<0)
         temp = temp * -1;
        
-     count += temp * int(pow(16,i));
+     count += temp * int(pow(16,i*2));
      }
     compacket.Count = count;
     
-    if(headerindex+100+4800>buf.length)
+    int[] rowdata = new int[row*col];
+    
+    if(headerindex+100+row*col>buf.length)
       return last_frame;
     
     
-     for(int i =0;i<4800;++i){
+     for(int i =0;i<row * col;++i){
       if(buf[i]<0)
-        rowdata[i] = int(buf[headerindex+100+i]);
+        rowdata[i] = int(buf[headerindex+96+i]);
        else
-        rowdata[i] = int(buf[headerindex+100+i]);
+        rowdata[i] = int(buf[headerindex+96+i]);
       }
     
     byte[] nextbuf = new byte[0];
@@ -166,9 +171,7 @@ class KLib2{
   {
     //Create TCP/IP Client
     myclient = new Client(parent, serverip, port);
-
-    if(compacket == null)
-      compacket = new COM_PACKET();  
+ 
 
     while(true)
     {
@@ -177,7 +180,7 @@ class KLib2{
       println(myclient.available());
       if(myclient.available()<5000)
         continue;
-      println("??");
+        
     byte[] packet = myclient.readBytes();
     
     boolean ispacket = false;
@@ -220,35 +223,48 @@ class KLib2{
         return;
       }
     
+    packetlength = 0;
     int count = 0;
     int nofdevice = 0;
-    int row = 0;
-    int col = 0;
+    row = 0;
+    col = 0;
   
     //read device information and sensor information
     for(int i =0;i<4;++i){
       print(headerindex+80+i);
-      count += int(buf[headerindex+4+i]) * int(pow(16,i));
-      nofdevice += int(buf[headerindex+80+i]) * int(pow(16,i));
-      row += int(buf[headerindex+84+i]) * int(pow(16,i));
-      col += int(buf[headerindex+88+i]) * int(pow(16,i));
+      packetlength += int(buf[headerindex+4+i]) * int(pow(16,i*2));
+      count += int(buf[headerindex+8+i]) * int(pow(16,i*2));
+      nofdevice += int(buf[headerindex+84+i]) * int(pow(16,i*2));
+      row += int(buf[headerindex+88+i]) * int(pow(16,i*2));
+      col += int(buf[headerindex+92+i]) * int(pow(16,i*2));
       }
   
+    if(compacket == null)
+      compacket = new COM_PACKET(row,col); 
+    
+    compacket.Length = packetlength;
     compacket.Count = count;
     compacket.NofDevice = nofdevice;
     compacket.row = row;
     compacket.col = col;
-  
-  
+    println();
+    print(packetlength);
+    println();
+    print(count);
+    println();
+    
+    print(buf[headerindex+6]);
+    println();
+    
     String devicename = "";
     String sensor1 = "";
     String sensor2 = "";
     
     //read device's name and sensor's name
     for(int i =0;i<24;++i){
-      devicename += char(buf[headerindex+8+i]);
-      sensor1 += char(buf[headerindex+32+i]);
-      sensor2 += char(buf[headerindex+56+i]);
+      devicename += char(buf[headerindex+12+i]);
+      sensor1 += char(buf[headerindex+36+i]);
+      sensor2 += char(buf[headerindex+60+i]);
     }
     compacket.Device_name = devicename;
     compacket.sensor1_name = sensor1;
@@ -279,8 +295,10 @@ void draw(){
   int[] data = kLib.k_read(); //<>//
   
   //print(kLib.compacket.row);
+  //println();
   //print(kLib.compacket.col);
-  
+  //print(data.length);
+  //println();
   for(int i =0; i< kLib.compacket.col ; ++i)
   {
     for(int j =0; j< kLib.compacket.row ; ++j)
@@ -291,5 +309,5 @@ void draw(){
     println();
   }
   println();
-  println();
+  
  }
