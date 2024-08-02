@@ -1,4 +1,6 @@
 import processing.net.*; //<>//
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 Client myclient;
 
@@ -47,10 +49,12 @@ public class COM_PACKET {
 class KLib2{
   public COM_PACKET compacket;
   public int[] last_frame;
+  public double[] last_ForceFrame;
   boolean isread;
   byte[] buf;
   int port;
   String serverip;
+  public String dataType;
   PApplet parent; // TCP/IP member var
   
   public KLib2(PApplet _parent,String _serverip, int _port)
@@ -59,11 +63,14 @@ class KLib2{
     port = _port;
     parent = _parent;
     compacket = null;
+    dataType = "Raw";
     last_frame = new int[4800];
+    last_ForceFrame = new double[4800];
     buf = new byte[0];
     for(int i =0 ; i<4800 ; ++i)
     {
       last_frame[i] = 0;
+      last_ForceFrame[i] = 0;
     }
     isread = false;
   }
@@ -74,6 +81,99 @@ class KLib2{
     isread = false;
     myclient.stop();
   }
+  
+  double[] k_ForceRead()
+  {
+     if(!isread)
+      return last_ForceFrame;
+    //read packet
+    byte[] packet = myclient.readBytes();
+    
+    if(packet == null || packet.length <= 0)
+    {
+      return last_ForceFrame;
+    }
+    
+    for(int i =0 ; i<packet.length;++i){
+      buf = append(buf,packet[i]) ;
+    }    
+    
+    for(int i = 0; i<buf.length-3; ++i){
+      if(buf.length + 3 < row * col + 100){
+        return last_ForceFrame;
+      }
+      if(buf[i] != unhex("7E"))
+      {
+        continue;
+      }
+      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){ //check header
+        continue;
+      }
+      
+      int tail = i + (row * col* 8) + 96;
+
+      byte tailvalue = byte(unhex("81"));
+    
+      if(buf[tail] != tailvalue)
+      {
+        continue;
+      }
+      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){ //check tail
+        continue;
+      }
+      headerindex = i;
+      tailindex = tail;
+      break;
+    }
+  
+    if(headerindex <0)
+      return last_ForceFrame;
+    
+    int count = 0;
+    
+    for(int i =0;i<4;++i){
+      int temp = int(buf[headerindex+8+i]);
+      if(temp<0)
+        temp = temp * -1;
+       
+     count += temp * int(pow(16,i*2));
+     }
+    compacket.Count = count;
+    
+    double[] rowdata = new double[row*col];
+    
+    if(headerindex+100+row*col>buf.length)
+      return last_ForceFrame;
+      
+    //byteData.order(ByteOrder.LITTLE_ENDIAN);
+    
+    for (int i = 0; i < row * col; ++i) {
+      int index = headerindex + 96 + i * 8;
+      long bits = ((long) buf[index] & 0xFF) |
+                  (((long) buf[index + 1] & 0xFF) << 8) |
+                  (((long) buf[index + 2] & 0xFF) << 16) |
+                  (((long) buf[index + 3] & 0xFF) << 24) |
+                  (((long) buf[index + 4] & 0xFF) << 32) |
+                  (((long) buf[index + 5] & 0xFF) << 40) |
+                  (((long) buf[index + 6] & 0xFF) << 48) |
+                  (((long) buf[index + 7] & 0xFF) << 56);
+      double value = Double.longBitsToDouble(bits);
+      rowdata[i] = value;
+    } //<>//
+    byte[] nextbuf = new byte[0];
+    //creat next buf
+    for(int i = tailindex + 4 ; i < buf.length; ++i)
+    {
+        append(nextbuf, buf[i]);
+    }
+  
+    buf = nextbuf;
+    
+    last_ForceFrame = rowdata;
+        
+    return rowdata;
+  }
+    
   
   //read to packet func
   int[] k_read()
@@ -90,12 +190,7 @@ class KLib2{
     
     for(int i =0 ; i<packet.length;++i){
       buf = append(buf,packet[i]) ;
-    }
-    
-    println();
-    print(buf.length);
-    println();
-    print(row * col);
+    }    
     
     for(int i = 0; i<buf.length-3; ++i){
       if(buf.length + 3 < row * col + 100){
@@ -175,9 +270,7 @@ class KLib2{
 
     while(true)
     {
-    if(myclient.available() > 0){
-    
-      println(myclient.available());
+    if(myclient.available() > 0){    
       if(myclient.available()<5000)
         continue;
         
@@ -197,22 +290,11 @@ class KLib2{
       {
         continue;
       }
-      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E")){//check header
+      if(buf[i+1] != unhex("7E") || buf[i+2] != unhex("7E") || buf[i+3] != unhex("7E"))
+      {//check header
         continue;
-      }
-    
-      int tail = i + 4996;
-      byte tailvalue = byte(unhex("81"));
- 
-      if(buf[tail] != tailvalue)
-      {
-        continue;
-      }
-      if(buf[tail+1] != tailvalue || buf[tail+2] != tailvalue || buf[tail+3] != tailvalue){//check tail
-        continue;
-      }
+      }    
       headerindex = i;
-      tailindex = tail;
       break;
       }
     
@@ -231,13 +313,13 @@ class KLib2{
   
     //read device information and sensor information
     for(int i =0;i<4;++i){
-      print(headerindex+80+i);
+      // << shift
       packetlength += int(buf[headerindex+4+i]) * int(pow(16,i*2));
       count += int(buf[headerindex+8+i]) * int(pow(16,i*2));
       nofdevice += int(buf[headerindex+84+i]) * int(pow(16,i*2));
       row += int(buf[headerindex+88+i]) * int(pow(16,i*2));
       col += int(buf[headerindex+92+i]) * int(pow(16,i*2));
-      }
+    }
   
     if(compacket == null)
       compacket = new COM_PACKET(row,col); 
@@ -247,15 +329,11 @@ class KLib2{
     compacket.NofDevice = nofdevice;
     compacket.row = row;
     compacket.col = col;
-    println();
-    print(packetlength);
-    println();
-    print(count);
-    println();
     
-    print(buf[headerindex+6]);
-    println();
-    
+    if( compacket.Length > row*col+200)
+    {
+      dataType = "Force";
+    }    
     String devicename = "";
     String sensor1 = "";
     String sensor2 = "";
@@ -289,24 +367,41 @@ void setup(){
   kLib = new KLib2(this, "127.0.0.1", 3800);
   kLib.k_start();
 }
-
+void printFormattedNumber(double num) {
+  String formatted = String.format("%.3f", num);   //the fractional part has 3 digits.
+  print(formatted);
+}
 void draw(){
-  
-  int[] data = kLib.k_read(); //<>//
-  
-  //print(kLib.compacket.row);
-  //println();
-  //print(kLib.compacket.col);
-  //print(data.length);
-  //println();
-  for(int i =0; i< kLib.compacket.col ; ++i)
+  int data[] = new int[0];
+  double forceData[] = new double[0];
+  if(kLib.dataType == "Raw"){
+      data = kLib.k_read(); //<>//  
+  }
+  else{
+    forceData = kLib.k_ForceRead();
+  }
+  if(kLib.dataType == "Raw"){
+    for(int j =0; j< kLib.compacket.row ; ++j)
+    {
+      for(int i =0; i< kLib.compacket.col ; ++i)
+      {
+        print(data[j*kLib.compacket.col + i]);
+        print(" ");
+      }
+      println();
+    }
+  }
+  else
   {
     for(int j =0; j< kLib.compacket.row ; ++j)
     {
-      print(data[i*kLib.compacket.row + j]);
-      print(" ");
+      for(int i =0; i< kLib.compacket.col ; ++i)
+      {
+        printFormattedNumber(forceData[j*kLib.compacket.col + i]);
+        print(" ");
+      }
+      println();
     }
-    println();
   }
   println();
   
